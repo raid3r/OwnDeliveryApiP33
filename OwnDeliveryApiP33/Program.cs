@@ -36,6 +36,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// CORS for Docker containers
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", corsPolicyBuilder =>
+    {
+        corsPolicyBuilder
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
+
+// Health checks
+builder.Services.AddHealthChecks();
+
 // Password hasher
 builder.Services.AddSingleton<PasswordHasher<Courier>>();
 
@@ -105,7 +120,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Health check endpoint
+app.MapHealthChecks("/health");
+
 app.UseHttpsRedirection();
+app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

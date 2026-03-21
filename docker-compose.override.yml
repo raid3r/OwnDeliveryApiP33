@@ -1,0 +1,30 @@
+# docker-compose.override.yml - Development overrides
+# This file overrides docker-compose.yml for local development
+# Automatically applied by Docker Compose when present
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Enable detailed logging for development
+      Logging__LogLevel__Default: Information
+      Logging__LogLevel__Microsoft: Warning
+    ports:
+      - "5134:8080"
+    volumes:
+      # Mount source code for hot reload (if using dotnet watch)
+      - ./OwnDeliveryApiP33:/app/src/OwnDeliveryApiP33
+    command: dotnet OwnDeliveryApiP33.dll
+    restart: unless-stopped
+
+  db:
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
