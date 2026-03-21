@@ -364,3 +364,6 @@ FodyWeavers.xsd
 # Local development secrets — never commit real credentials
 appsettings.Development.json
 appsettings.*.local.json
+
+# Docker environment file with real credentials
+.env
