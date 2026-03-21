@@ -102,7 +102,8 @@ public class AuthController : ControllerBase
         var jwtSettings = _configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"]!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expires = DateTime.UtcNow.AddMinutes(double.Parse(jwtSettings["ExpiresInMinutes"]!));
+        var expires = DateTime.UtcNow.AddMinutes(
+            double.TryParse(jwtSettings["ExpiresInMinutes"], out var mins) ? mins : 60);
 
         var claims = new[]
         {
@@ -110,7 +111,6 @@ public class AuthController : ControllerBase
             new Claim(JwtRegisteredClaimNames.Email, courier.Email),
             new Claim(JwtRegisteredClaimNames.GivenName, courier.FirstName),
             new Claim(JwtRegisteredClaimNames.FamilyName, courier.LastName),
-            new Claim("courier_id", courier.Id.ToString()),
         };
 
         var token = new JwtSecurityToken(
