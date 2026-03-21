@@ -42,6 +42,7 @@ builder.Services.AddSingleton<PasswordHasher<Courier>>();
 // Application Services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICourierService, CourierService>();
 
 // Validators
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterCourierRequestValidator>();
@@ -86,7 +87,10 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        db.Database.Migrate();
+        if (db.Database.IsRelational())
+            db.Database.Migrate();
+        else
+            db.Database.EnsureCreated();
     }
     catch (Exception ex)
     {
