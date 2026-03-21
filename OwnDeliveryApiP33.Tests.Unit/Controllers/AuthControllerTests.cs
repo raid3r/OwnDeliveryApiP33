@@ -1,9 +1,10 @@
 using FluentAssertions;
-using Microsoft.AspNetCore.Identity;
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using OwnDeliveryApiP33.Application.DTOs;
+using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Application.Validators;
 using OwnDeliveryApiP33.Controllers;
 using OwnDeliveryApiP33.Domain.Entities;
@@ -15,7 +16,7 @@ public class AuthControllerTests : IDisposable
 {
     private readonly ApplicationDbContext _context;
     private readonly AuthController _sut;
-    private readonly PasswordHasher<Courier> _passwordHasher = new();
+    private readonly IAuthService _authService;
 
     private static IConfiguration BuildJwtConfig() =>
         new ConfigurationBuilder()
@@ -35,12 +36,18 @@ public class AuthControllerTests : IDisposable
             .Options;
         _context = new ApplicationDbContext(options);
 
-        _sut = new AuthController(
+        var config = BuildJwtConfig();
+        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Courier>();
+        var tokenService = new TokenService(config);
+        
+        _authService = new AuthService(
             _context,
-            BuildJwtConfig(),
+            tokenService,
             new RegisterCourierRequestValidator(),
             new LoginCourierRequestValidator(),
-            _passwordHasher);
+            passwordHasher);
+
+        _sut = new AuthController(_authService);
     }
 
     // ── Register ────────────────────────────────────────────────────────────────
@@ -212,6 +219,7 @@ public class AuthControllerTests : IDisposable
 
     private async Task SeedCourierAsync(string email, string password)
     {
+        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Courier>();
         var courier = new Courier
         {
             Id          = Guid.NewGuid(),
@@ -222,7 +230,7 @@ public class AuthControllerTests : IDisposable
             CreatedAt   = DateTime.UtcNow,
             IsActive    = true
         };
-        courier.PasswordHash = _passwordHasher.HashPassword(courier, password);
+        courier.PasswordHash = passwordHasher.HashPassword(courier, password);
         _context.Couriers.Add(courier);
         await _context.SaveChangesAsync();
     }

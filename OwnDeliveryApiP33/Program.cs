@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Application.Validators;
 using OwnDeliveryApiP33.Domain.Entities;
 using OwnDeliveryApiP33.Infrastructure.Data;
@@ -37,6 +38,10 @@ builder.Services.AddAuthorization();
 
 // Password hasher
 builder.Services.AddSingleton<PasswordHasher<Courier>>();
+
+// Application Services
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Validators
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterCourierRequestValidator>();

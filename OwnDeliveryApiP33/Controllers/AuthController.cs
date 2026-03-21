@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using FluentValidation;
@@ -7,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using OwnDeliveryApiP33.Application.DTOs;
+using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Domain.Entities;
 using OwnDeliveryApiP33.Infrastructure.Data;
 
@@ -17,24 +17,11 @@ namespace OwnDeliveryApiP33.Controllers;
 [Produces("application/json")]
 public class AuthController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
-    private readonly IConfiguration _configuration;
-    private readonly IValidator<RegisterCourierRequest> _registerValidator;
-    private readonly IValidator<LoginCourierRequest> _loginValidator;
-    private readonly PasswordHasher<Courier> _passwordHasher;
+    private readonly IAuthService _authService;
 
-    public AuthController(
-        ApplicationDbContext context,
-        IConfiguration configuration,
-        IValidator<RegisterCourierRequest> registerValidator,
-        IValidator<LoginCourierRequest> loginValidator,
-        PasswordHasher<Courier> passwordHasher)
+    public AuthController(IAuthService authService)
     {
-        _context = context;
-        _configuration = configuration;
-        _registerValidator = registerValidator;
-        _loginValidator = loginValidator;
-        _passwordHasher = passwordHasher;
+        _authService = authService;
     }
 
     /// <summary>Register a new courier</summary>
@@ -44,32 +31,19 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register([FromBody] RegisterCourierRequest request, CancellationToken ct)
     {
-        var validation = await _registerValidator.ValidateAsync(request, ct);
-        if (!validation.IsValid)
-            return BadRequest(validation.Errors.Select(e => new { e.PropertyName, e.ErrorMessage }));
-
-        var exists = await _context.Couriers.AnyAsync(c => c.Email == request.Email.ToLower(), ct);
-        if (exists)
-            return Conflict(new { message = "A courier with this email already exists." });
-
-        var courier = new Courier
+        try
         {
-            Id = Guid.NewGuid(),
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email.ToLower(),
-            PhoneNumber = request.PhoneNumber,
-            CreatedAt = DateTime.UtcNow,
-            IsActive = true
-        };
-
-        courier.PasswordHash = _passwordHasher.HashPassword(courier, request.Password);
-
-        _context.Couriers.Add(courier);
-        await _context.SaveChangesAsync(ct);
-
-        var response = GenerateToken(courier);
-        return CreatedAtAction(nameof(Register), response);
+            var response = await _authService.RegisterAsync(request, ct);
+            return CreatedAtAction(nameof(Register), response);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage }));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 
     /// <summary>Login as a courier and receive a JWT token</summary>
@@ -79,53 +53,18 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginCourierRequest request, CancellationToken ct)
     {
-        var validation = await _loginValidator.ValidateAsync(request, ct);
-        if (!validation.IsValid)
-            return BadRequest(validation.Errors.Select(e => new { e.PropertyName, e.ErrorMessage }));
-
-        var courier = await _context.Couriers
-            .FirstOrDefaultAsync(c => c.Email == request.Email.ToLower(), ct);
-
-        if (courier is null)
-            return Unauthorized(new { message = "Invalid email or password." });
-
-        var result = _passwordHasher.VerifyHashedPassword(courier, courier.PasswordHash, request.Password);
-        if (result == PasswordVerificationResult.Failed)
-            return Unauthorized(new { message = "Invalid email or password." });
-
-        var response = GenerateToken(courier);
-        return Ok(response);
-    }
-
-    private AuthResponse GenerateToken(Courier courier)
-    {
-        var jwtSettings = _configuration.GetSection("Jwt");
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expires = DateTime.UtcNow.AddMinutes(
-            double.TryParse(jwtSettings["ExpiresInMinutes"], out var mins) ? mins : 60);
-
-        var claims = new[]
+        try
         {
-            new Claim(JwtRegisteredClaimNames.Sub, courier.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, courier.Email),
-            new Claim(JwtRegisteredClaimNames.GivenName, courier.FirstName),
-            new Claim(JwtRegisteredClaimNames.FamilyName, courier.LastName),
-        };
-
-        var token = new JwtSecurityToken(
-            issuer: jwtSettings["Issuer"],
-            audience: jwtSettings["Audience"],
-            claims: claims,
-            expires: expires,
-            signingCredentials: creds);
-
-        return new AuthResponse(
-            courier.Id,
-            courier.Email,
-            courier.FirstName,
-            courier.LastName,
-            new JwtSecurityTokenHandler().WriteToken(token),
-            expires);
+            var response = await _authService.LoginAsync(request, ct);
+            return Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage }));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
     }
 }
