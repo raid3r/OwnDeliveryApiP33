@@ -5,4 +5,5 @@ public record RegisterCourierRequest(
     string LastName,
     string Email,
     string Password,
-    string PhoneNumber);
+    string PhoneNumber,
+    string? LicenseNumber = null);

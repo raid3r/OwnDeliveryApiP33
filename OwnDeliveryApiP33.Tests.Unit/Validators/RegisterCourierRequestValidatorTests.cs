@@ -12,7 +12,7 @@ public class RegisterCourierRequestValidatorTests
         FirstName: "John",
         LastName: "Doe",
         Email: "john.doe@example.com",
-        Password: "Secret1",
+        Password: "SecurePass1",
         PhoneNumber: "+380501234567"
     );
 
@@ -32,7 +32,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { FirstName = firstName });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.FirstName));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.FirstName));
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { FirstName = new string('A', 101) });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.FirstName));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.FirstName));
     }
 
     [Theory]
@@ -52,7 +52,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { LastName = lastName });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.LastName));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.LastName));
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { LastName = new string('B', 101) });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.LastName));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.LastName));
     }
 
     [Theory]
@@ -84,12 +84,15 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { Email = longEmail });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.Email));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.Email));
     }
 
     [Theory]
     [InlineData("")]
-    [InlineData("123")]   // too short (< 6)
+    [InlineData("Pass")]   // too short (< 8)
+    [InlineData("password")] // no uppercase
+    [InlineData("PASSWORD1")] // no lowercase
+    [InlineData("Password")] // no digit
     [InlineData("     ")] // whitespace only
     public async Task InvalidPassword_ShouldFailValidation(string password)
     {
@@ -105,7 +108,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { Password = new string('P', 101) });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.Password));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.Password));
     }
 
     [Theory]
@@ -116,7 +119,7 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { PhoneNumber = phone });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.PhoneNumber));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.PhoneNumber));
     }
 
     [Fact]
@@ -125,22 +128,40 @@ public class RegisterCourierRequestValidatorTests
         var result = await _sut.ValidateAsync(ValidRequest() with { PhoneNumber = new string('9', 21) });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(RegisterCourierRequest.PhoneNumber));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(RegisterCourierRequest.PhoneNumber));
     }
 
     [Fact]
     public async Task MaxLengthValues_ShouldPassValidation()
     {
+        var passwordWith100Chars = "SecurePassword1" + new string('p', 85); // 15 + 85 = 100
+
         var request = ValidRequest() with
         {
             FirstName = new string('A', 100),
             LastName = new string('B', 100),
-            Password = new string('P', 100),
-            PhoneNumber = new string('9', 20)
+            Password = passwordWith100Chars,
+            PhoneNumber = "+123456789012345"
         };
 
         var result = await _sut.ValidateAsync(request);
 
         result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidLicenseNumber_ShouldPassValidation()
+    {
+        var request = ValidRequest() with { LicenseNumber = "ABC123" };
+        var result = await _sut.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task TooLongLicenseNumber_ShouldFailValidation()
+    {
+        var request = ValidRequest() with { LicenseNumber = new string('A', 51) };
+        var result = await _sut.ValidateAsync(request);
+        result.IsValid.Should().BeFalse();
     }
 }

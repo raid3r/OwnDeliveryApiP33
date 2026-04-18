@@ -9,12 +9,26 @@ using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Application.Validators;
 using OwnDeliveryApiP33.Domain.Entities;
 using OwnDeliveryApiP33.Infrastructure.Data;
+using OwnDeliveryApiP33.Infrastructure.Middleware;
+using OwnDeliveryApiP33.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Repositories & Unit of Work
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<ICourierRepository, CourierRepository>();
+builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
+builder.Services.AddScoped<ITariffRepository, TariffRepository>();
+builder.Services.AddScoped<IRatingRepository, RatingRepository>();
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Auth
 var jwtSettings = builder.Configuration.GetSection("Jwt");
@@ -52,12 +66,15 @@ builder.Services.AddCors(options =>
 builder.Services.AddHealthChecks();
 
 // Password hasher
-builder.Services.AddSingleton<PasswordHasher<Courier>>();
+builder.Services.AddSingleton<PasswordHasher<User>>();
 
 // Application Services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICourierService, CourierService>();
+builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<ITariffService, TariffService>();
 
 // Validators
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterCourierRequestValidator>();
@@ -95,6 +112,9 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Global exception handler
+app.UseGlobalExceptionHandler();
+
 // Apply pending EF Core migrations automatically on startup
 using (var scope = app.Services.CreateScope())
 {
@@ -119,6 +139,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+            ctx.Context.Response.ContentType = "text/html; charset=utf-8";
+    }
+});
 
 // Health check endpoint
 app.MapHealthChecks("/health");

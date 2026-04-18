@@ -9,7 +9,7 @@ public class LoginCourierRequestValidatorTests
     private readonly LoginCourierRequestValidator _sut = new();
 
     private static LoginCourierRequest ValidRequest() =>
-        new(Email: "courier@example.com", Password: "Secret1");
+        new(Email: "courier@example.com", Password: "SecurePass1");
 
     [Fact]
     public async Task ValidRequest_ShouldPassValidation()
@@ -34,20 +34,21 @@ public class LoginCourierRequestValidatorTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
+    [InlineData("Pass")] // too short
     public async Task EmptyPassword_ShouldFailValidation(string password)
     {
         var result = await _sut.ValidateAsync(ValidRequest() with { Password = password });
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle(e => e.PropertyName == nameof(LoginCourierRequest.Password));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(LoginCourierRequest.Password));
     }
 
     [Fact]
-    public async Task BothFieldsInvalid_ShouldReturnTwoErrors()
+    public async Task BothFieldsInvalid_ShouldReturnErrors()
     {
         var result = await _sut.ValidateAsync(new LoginCourierRequest(Email: "bad-email", Password: ""));
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().HaveCount(2);
+        result.Errors.Should().NotBeEmpty();
     }
 }

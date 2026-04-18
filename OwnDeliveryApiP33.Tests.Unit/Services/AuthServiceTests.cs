@@ -7,6 +7,7 @@ using OwnDeliveryApiP33.Application.DTOs;
 using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Application.Validators;
 using OwnDeliveryApiP33.Domain.Entities;
+using OwnDeliveryApiP33.Domain.Enums;
 using OwnDeliveryApiP33.Infrastructure.Data;
 
 namespace OwnDeliveryApiP33.Tests.Unit.Services;
@@ -15,7 +16,7 @@ public class AuthServiceTests : IDisposable
 {
     private readonly ApplicationDbContext _context;
     private readonly AuthService _sut;
-    private readonly PasswordHasher<Courier> _passwordHasher;
+    private readonly PasswordHasher<User> _passwordHasher;
     private readonly ITokenService _tokenService;
     private readonly IValidator<RegisterCourierRequest> _registerValidator;
     private readonly IValidator<LoginCourierRequest> _loginValidator;
@@ -39,7 +40,7 @@ public class AuthServiceTests : IDisposable
         _context = new ApplicationDbContext(options);
 
         var config = BuildJwtConfig();
-        _passwordHasher = new PasswordHasher<Courier>();
+        _passwordHasher = new PasswordHasher<User>();
         _tokenService = new TokenService(config);
         _registerValidator = new RegisterCourierRequestValidator();
         _loginValidator = new LoginCourierRequestValidator();
@@ -49,10 +50,11 @@ public class AuthServiceTests : IDisposable
             _tokenService,
             _registerValidator,
             _loginValidator,
+            new LoginRequestValidator(),
             _passwordHasher);
     }
 
-    // ?? Register - Success Cases ?????????????????????????????????????????????
+    // ?? Register - Success Cases ????????????????????????????????????????????
 
     [Fact]
     public async Task RegisterAsync_WithValidRequest_ReturnsCourierData()
@@ -100,10 +102,10 @@ public class AuthServiceTests : IDisposable
 
         await _sut.RegisterAsync(request);
 
-        var savedCourier = await _context.Couriers.SingleOrDefaultAsync(c => c.Email == "bob@example.com");
-        savedCourier.Should().NotBeNull();
-        savedCourier!.FirstName.Should().Be("Bob");
-        savedCourier.LastName.Should().Be("Johnson");
+        var savedUser = await _context.Users.SingleOrDefaultAsync(u => u.Email == "bob@example.com");
+        savedUser.Should().NotBeNull();
+        savedUser!.FullName.Should().Contain("Bob");
+        savedUser.FullName.Should().Contain("Johnson");
     }
 
     [Fact]
@@ -118,9 +120,9 @@ public class AuthServiceTests : IDisposable
 
         await _sut.RegisterAsync(request);
 
-        var savedCourier = await _context.Couriers.SingleAsync(c => c.Email == "charlie@example.com");
-        savedCourier.PasswordHash.Should().NotBe(request.Password);
-        savedCourier.PasswordHash.Should().NotBeNullOrWhiteSpace();
+        var savedUser = await _context.Users.SingleAsync(u => u.Email == "charlie@example.com");
+        savedUser.PasswordHash.Should().NotBe(request.Password);
+        savedUser.PasswordHash.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -135,12 +137,12 @@ public class AuthServiceTests : IDisposable
 
         await _sut.RegisterAsync(request);
 
-        var savedCourier = await _context.Couriers.SingleAsync();
-        savedCourier.Email.Should().Be("dave.wilson@example.com");
+        var savedUser = await _context.Users.SingleAsync();
+        savedUser.Email.Should().Be("dave.wilson@example.com");
     }
 
     [Fact]
-    public async Task RegisterAsync_SetsIsActiveToTrue()
+    public async Task RegisterAsync_SetsStatusToActive()
     {
         var request = new RegisterCourierRequest(
             "Eve",
@@ -151,8 +153,8 @@ public class AuthServiceTests : IDisposable
 
         await _sut.RegisterAsync(request);
 
-        var savedCourier = await _context.Couriers.SingleAsync();
-        savedCourier.IsActive.Should().BeTrue();
+        var savedUser = await _context.Users.SingleAsync();
+        savedUser.Status.Should().Be(UserStatus.Active);
     }
 
     [Fact]
@@ -169,13 +171,13 @@ public class AuthServiceTests : IDisposable
         await _sut.RegisterAsync(request);
 
         var afterCall = DateTime.UtcNow.AddSeconds(1);
-        var savedCourier = await _context.Couriers.SingleAsync();
-        savedCourier.CreatedAt.Should().BeCloseTo(beforeCall, TimeSpan.FromSeconds(2));
-        savedCourier.CreatedAt.Should().BeOnOrAfter(beforeCall);
-        savedCourier.CreatedAt.Should().BeOnOrBefore(afterCall);
+        var savedUser = await _context.Users.SingleAsync();
+        savedUser.CreatedAt.Should().BeCloseTo(beforeCall, TimeSpan.FromSeconds(2));
+        savedUser.CreatedAt.Should().BeOnOrAfter(beforeCall);
+        savedUser.CreatedAt.Should().BeOnOrBefore(afterCall);
     }
 
-    // ?? Register - Validation Failures ???????????????????????????????????????
+    // ?? Register - Validation Failures ??????????????????????????????????????
 
     [Theory]
     [InlineData("", "Doe", "test@example.com", "Pass1", "+380")]
@@ -226,7 +228,7 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_WithValidCredentials_ReturnsAuthResponse()
     {
-        await SeedCourierAsync("login@example.com", "CorrectPass1");
+        await SeedUserAsync("login@example.com", "CorrectPass1");
 
         var result = await _sut.LoginAsync(
             new LoginCourierRequest("login@example.com", "CorrectPass1"));
@@ -238,7 +240,7 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_WithValidCredentials_ReturnsToken()
     {
-        await SeedCourierAsync("token@example.com", "CorrectPass1");
+        await SeedUserAsync("token@example.com", "CorrectPass1");
 
         var result = await _sut.LoginAsync(
             new LoginCourierRequest("token@example.com", "CorrectPass1"));
@@ -250,7 +252,7 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_CaseInsensitiveEmail_Succeeds()
     {
-        await SeedCourierAsync("case@example.com", "CorrectPass1");
+        await SeedUserAsync("case@example.com", "CorrectPass1");
 
         var result = await _sut.LoginAsync(
             new LoginCourierRequest("CASE@EXAMPLE.COM", "CorrectPass1"));
@@ -261,14 +263,12 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_ReturnsCourierData()
     {
-        var courier = await SeedCourierAsync("data@example.com", "Pass1234");
+        var user = await SeedUserAsync("data@example.com", "Pass1234");
 
         var result = await _sut.LoginAsync(
             new LoginCourierRequest("data@example.com", "Pass1234"));
 
-        result.CourierId.Should().Be(courier.Id);
-        result.FirstName.Should().Be(courier.FirstName);
-        result.LastName.Should().Be(courier.LastName);
+        result.CourierId.Should().Be(user.Id);
     }
 
     // ?? Login - Validation Failures ??????????????????????????????????????????
@@ -302,7 +302,7 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_WrongPassword_ThrowsUnauthorizedAccessException()
     {
-        await SeedCourierAsync("wrong@example.com", "CorrectPass1");
+        await SeedUserAsync("wrong@example.com", "CorrectPass1");
 
         var request = new LoginCourierRequest("wrong@example.com", "WrongPass");
 
@@ -315,7 +315,7 @@ public class AuthServiceTests : IDisposable
     [Fact]
     public async Task LoginAsync_SimilarButDifferentPassword_ThrowsUnauthorizedAccessException()
     {
-        await SeedCourierAsync("similar@example.com", "SecurePass1");
+        await SeedUserAsync("similar@example.com", "SecurePass1");
 
         var request = new LoginCourierRequest("similar@example.com", "SecurePass2");
 
@@ -357,22 +357,34 @@ public class AuthServiceTests : IDisposable
 
     // ?? Helpers ??????????????????????????????????????????????????????????????
 
-    private async Task<Courier> SeedCourierAsync(string email, string password)
+    private async Task<User> SeedUserAsync(string email, string password)
     {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Seed User",
+            Email = email.ToLower(),
+            PhoneNumber = "+380501234567",
+            Role = UserRole.Courier,
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        user.PasswordHash = _passwordHasher.HashPassword(user, password);
+        
         var courier = new Courier
         {
             Id = Guid.NewGuid(),
-            FirstName = "Seed",
-            LastName = "User",
-            Email = email.ToLower(),
-            PhoneNumber = "+380501234567",
+            UserId = user.Id,
+            User = user,
             CreatedAt = DateTime.UtcNow,
-            IsActive = true
+            UpdatedAt = DateTime.UtcNow
         };
-        courier.PasswordHash = _passwordHasher.HashPassword(courier, password);
+        
+        _context.Users.Add(user);
         _context.Couriers.Add(courier);
         await _context.SaveChangesAsync();
-        return courier;
+        return user;
     }
 
     public void Dispose() => _context.Dispose();

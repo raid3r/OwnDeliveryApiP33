@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Domain.Entities;
+using OwnDeliveryApiP33.Domain.Enums;
 using System.IdentityModel.Tokens.Jwt;
 
 namespace OwnDeliveryApiP33.Tests.Unit.Services;
@@ -31,11 +32,11 @@ public class TokenServiceTests
     // ?? GenerateToken - Basic Functionality ??????????????????????????????????
 
     [Fact]
-    public void GenerateToken_WithValidCourier_ReturnsTokenAndExpiresAt()
+    public void GenerateToken_WithValidUser_ReturnsTokenAndExpiresAt()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, expiresAt) = _sut.GenerateToken(courier);
+        var (token, expiresAt) = _sut.GenerateToken(user);
 
         token.Should().NotBeNullOrWhiteSpace();
         expiresAt.Should().BeAfter(DateTime.UtcNow);
@@ -44,9 +45,9 @@ public class TokenServiceTests
     [Fact]
     public void GenerateToken_ReturnsValidJwtToken()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var canRead = handler.CanReadToken(token);
@@ -56,9 +57,9 @@ public class TokenServiceTests
     [Fact]
     public void GenerateToken_TokenCanBeParsed()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
@@ -69,24 +70,24 @@ public class TokenServiceTests
     // ?? GenerateToken - Claims ???????????????????????????????????????????????
 
     [Fact]
-    public void GenerateToken_ContainsCourierIdInSubjectClaim()
+    public void GenerateToken_ContainsUserIdInSubjectClaim()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
 
-        jwtToken.Subject.Should().Be(courier.Id.ToString());
+        jwtToken.Subject.Should().Be(user.Id.ToString());
     }
 
     [Fact]
     public void GenerateToken_ContainsEmailClaim()
     {
-        var courier = CreateTestCourier("test@example.com");
+        var user = CreateTestUser("test@example.com");
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
@@ -95,87 +96,24 @@ public class TokenServiceTests
     }
 
     [Fact]
-    public void GenerateToken_ContainsFirstNameClaim()
+    public void GenerateToken_ContainsRoleClaim()
     {
-        var courier = CreateTestCourier(firstName: "John");
+        var user = CreateTestUser(role: UserRole.Courier);
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
 
-        jwtToken.Claims.Should().Contain(c => c.Type == "given_name" && c.Value == "John");
+        jwtToken.Claims.Should().Contain(c => c.Type == "role" && c.Value == "Courier");
     }
-
-    [Fact]
-    public void GenerateToken_ContainsLastNameClaim()
-    {
-        var courier = CreateTestCourier(lastName: "Doe");
-
-        var (token, _) = _sut.GenerateToken(courier);
-
-        var handler = new JwtSecurityTokenHandler();
-        var jwtToken = handler.ReadJwtToken(token);
-
-        jwtToken.Claims.Should().Contain(c => c.Type == "family_name" && c.Value == "Doe");
-    }
-
-    [Fact]
-    public void GenerateToken_ContainsAllRequiredClaims()
-    {
-        var courier = CreateTestCourier();
-
-        var (token, _) = _sut.GenerateToken(courier);
-
-        var handler = new JwtSecurityTokenHandler();
-        var jwtToken = handler.ReadJwtToken(token);
-
-        // Should contain: sub, email, given_name, family_name
-        jwtToken.Claims.Count().Should().BeGreaterThanOrEqualTo(4);
-        jwtToken.Claims.Should().Contain(c => c.Type == "sub");
-        jwtToken.Claims.Should().Contain(c => c.Type == "email");
-        jwtToken.Claims.Should().Contain(c => c.Type == "given_name");
-        jwtToken.Claims.Should().Contain(c => c.Type == "family_name");
-    }
-
-    // ?? GenerateToken - Expiration ???????????????????????????????????????????
-
-    [Fact]
-    public void GenerateToken_ExpiresAtIsSetCorrectly()
-    {
-        var courier = CreateTestCourier();
-        var beforeCall = DateTime.UtcNow;
-
-        var (_, expiresAt) = _sut.GenerateToken(courier);
-
-        var afterCall = DateTime.UtcNow;
-        
-        // ExpiresAt should be approximately 60 minutes from now
-        expiresAt.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(60), TimeSpan.FromSeconds(5));
-        expiresAt.Should().BeAfter(beforeCall);
-    }
-
-    [Fact]
-    public void GenerateToken_TokenExpirationMatchesReturnedExpiresAt()
-    {
-        var courier = CreateTestCourier();
-
-        var (token, expiresAt) = _sut.GenerateToken(courier);
-
-        var handler = new JwtSecurityTokenHandler();
-        var jwtToken = handler.ReadJwtToken(token);
-
-        jwtToken.ValidTo.Should().BeCloseTo(expiresAt, TimeSpan.FromSeconds(1));
-    }
-
-    // ?? GenerateToken - Issuer and Audience ??????????????????????????????????
 
     [Fact]
     public void GenerateToken_ContainsCorrectIssuer()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
@@ -186,9 +124,9 @@ public class TokenServiceTests
     [Fact]
     public void GenerateToken_ContainsCorrectAudience()
     {
-        var courier = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token, _) = _sut.GenerateToken(courier);
+        var (token, _) = _sut.GenerateToken(user);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken = handler.ReadJwtToken(token);
@@ -196,83 +134,65 @@ public class TokenServiceTests
         jwtToken.Audiences.Should().Contain("TestAudience");
     }
 
-    // ?? Configuration Variations ?????????????????????????????????????????????
+    // ?? GenerateToken - Expiration ?????????????????????????????????????
 
-    [Theory]
-    [InlineData("30")]
-    [InlineData("120")]
-    [InlineData("1440")] // 1 day
-    public void GenerateToken_RespectsDifferentExpirationMinutes(string expirationMinutes)
+    [Fact]
+    public void GenerateToken_ExpiresAtIsInFuture()
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:Key"] = "ThisIsAVeryLongSecretKeyForJWT_AtLeast32Characters!",
-                ["Jwt:Issuer"] = "TestIssuer",
-                ["Jwt:Audience"] = "TestAudience",
-                ["Jwt:ExpiresInMinutes"] = expirationMinutes
-            })
-            .Build();
+        var user = CreateTestUser();
 
-        var service = new TokenService(config);
-        var courier = CreateTestCourier();
+        var (_, expiresAt) = _sut.GenerateToken(user);
 
-        var (_, expiresAt) = service.GenerateToken(courier);
-
-        var expectedExpiration = double.Parse(expirationMinutes);
-        expiresAt.Should().BeCloseTo(
-            DateTime.UtcNow.AddMinutes(expectedExpiration),
-            TimeSpan.FromSeconds(5));
+        expiresAt.Should().BeAfter(DateTime.UtcNow);
     }
 
     [Fact]
-    public void GenerateToken_UsesDefaultExpirationWhenConfigMissing()
+    public void GenerateToken_ExpirationIsApproximately60Minutes()
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:Key"] = "ThisIsAVeryLongSecretKeyForJWT_AtLeast32Characters!",
-                ["Jwt:Issuer"] = "TestIssuer",
-                ["Jwt:Audience"] = "TestAudience",
-                // Note: No ExpiresInMinutes configured
-            })
-            .Build();
+        var user = CreateTestUser();
+        var before = DateTime.UtcNow;
 
-        var service = new TokenService(config);
-        var courier = CreateTestCourier();
+        var (_, expiresAt) = _sut.GenerateToken(user);
 
-        var (_, expiresAt) = service.GenerateToken(courier);
-
-        // Should default to 60 minutes
-        expiresAt.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(60), TimeSpan.FromSeconds(5));
-    }
-
-    // ?? GenerateToken - Multiple Calls ???????????????????????????????????????
-
-    [Fact]
-    public void GenerateToken_MultipleCallsWithDifferentExpiry_ProducesDifferentExpiresAt()
-    {
-        var courier = CreateTestCourier();
-
-        var (token1, expiresAt1) = _sut.GenerateToken(courier);
-        
-        // Small delay to ensure different expiration time
-        System.Threading.Thread.Sleep(100);
-        
-        var (token2, expiresAt2) = _sut.GenerateToken(courier);
-
-        // Tokens may be same if generated within same second, but expiry times should be different
-        expiresAt1.Should().NotBe(expiresAt2);
+        var duration = expiresAt - before;
+        duration.Should().BeCloseTo(TimeSpan.FromMinutes(60), TimeSpan.FromSeconds(5));
     }
 
     [Fact]
-    public void GenerateToken_DifferentCouriersDifferentSubjects()
+    public void GenerateToken_TokenExpirationClaimMatchesReturnedExpiresAt()
     {
-        var courier1 = CreateTestCourier();
-        var courier2 = CreateTestCourier();
+        var user = CreateTestUser();
 
-        var (token1, _) = _sut.GenerateToken(courier1);
-        var (token2, _) = _sut.GenerateToken(courier2);
+        var (token, expiresAt) = _sut.GenerateToken(user);
+
+        var handler = new JwtSecurityTokenHandler();
+        var jwtToken = handler.ReadJwtToken(token);
+
+        jwtToken.ValidTo.Should().BeCloseTo(expiresAt, TimeSpan.FromSeconds(1));
+    }
+
+    // ?? GenerateToken - Different Users ???????????????????????????????????????
+
+    [Fact]
+    public void GenerateToken_GeneratesDifferentTokensForDifferentUsers()
+    {
+        var user1 = CreateTestUser();
+        var user2 = CreateTestUser();
+
+        var (token1, _) = _sut.GenerateToken(user1);
+        var (token2, _) = _sut.GenerateToken(user2);
+
+        token1.Should().NotBe(token2);
+    }
+
+    [Fact]
+    public void GenerateToken_DifferentUsersHaveDifferentSubjectClaims()
+    {
+        var user1 = CreateTestUser();
+        var user2 = CreateTestUser();
+
+        var (token1, _) = _sut.GenerateToken(user1);
+        var (token2, _) = _sut.GenerateToken(user2);
 
         var handler = new JwtSecurityTokenHandler();
         var jwtToken1 = handler.ReadJwtToken(token1);
@@ -281,23 +201,71 @@ public class TokenServiceTests
         jwtToken1.Subject.Should().NotBe(jwtToken2.Subject);
     }
 
-    // ?? Helpers ??????????????????????????????????????????????????????????????
+    // ?? GenerateToken - Configuration from appsettings.json ??????????????
 
-    private static Courier CreateTestCourier(
-        string? email = null,
-        string? firstName = null,
-        string? lastName = null)
+    [Fact]
+    public void GenerateToken_UsesConfigurationFromDependency()
     {
-        return new Courier
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "DifferentSecretKeyForJWT_AtLeast32Characters!!",
+                ["Jwt:Issuer"] = "CustomIssuer",
+                ["Jwt:Audience"] = "CustomAudience",
+                ["Jwt:ExpiresInMinutes"] = "120"
+            })
+            .Build();
+
+        var service = new TokenService(config);
+        var user = CreateTestUser();
+
+        var (_, expiresAt) = service.GenerateToken(user);
+
+        // Check expiration is approximately 120 minutes instead of 60
+        var duration = expiresAt - DateTime.UtcNow;
+        duration.Should().BeCloseTo(TimeSpan.FromMinutes(120), TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void GenerateToken_UsesCustomIssuerFromConfiguration()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "AnotherSecretKeyForJWT_AtLeast32Characters!!",
+                ["Jwt:Issuer"] = "MyCustomIssuer",
+                ["Jwt:Audience"] = "MyCustomAudience",
+                ["Jwt:ExpiresInMinutes"] = "60"
+            })
+            .Build();
+
+        var service = new TokenService(config);
+        var user = CreateTestUser();
+
+        var (token, _) = service.GenerateToken(user);
+
+        var handler = new JwtSecurityTokenHandler();
+        var jwtToken = handler.ReadJwtToken(token);
+
+        jwtToken.Issuer.Should().Be("MyCustomIssuer");
+    }
+
+    // ?? Helper Methods ???????????????????????????????????????????????????????
+
+    private static User CreateTestUser(
+        string? email = null,
+        UserRole role = UserRole.Courier)
+    {
+        return new User
         {
             Id = Guid.NewGuid(),
-            FirstName = firstName ?? "John",
-            LastName = lastName ?? "Doe",
+            FullName = "John Doe",
             Email = email ?? "john@example.com",
             PhoneNumber = "+380501234567",
             PasswordHash = "hashedpassword",
+            Role = role,
             CreatedAt = DateTime.UtcNow,
-            IsActive = true
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }

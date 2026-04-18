@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using OwnDeliveryApiP33.Application.DTOs;
 using OwnDeliveryApiP33.Domain.Entities;
+using OwnDeliveryApiP33.Domain.Enums;
 using OwnDeliveryApiP33.Infrastructure.Data;
 using OwnDeliveryApiP33.Tests.Integration.Infrastructure;
 
@@ -172,24 +173,36 @@ public class AuthEndpointsTests : IClassFixture<DeliveryApiFactory>
     /// <summary>Creates a unique email address for each test to avoid conflicts in shared DB.</summary>
     private static string UniqueEmail() => $"user-{Guid.NewGuid():N}@example.com";
 
-    /// <summary>Seeds a courier directly into the DB using the DI container.</summary>
+    /// <summary>Seeds a user directly into the DB using the DI container.</summary>
     private async Task RegisterAndSeedAsync(string email, string password)
     {
         using var scope = _factory.Services.CreateScope();
         var context   = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var hasher    = scope.ServiceProvider.GetRequiredService<PasswordHasher<Courier>>();
+        var hasher    = scope.ServiceProvider.GetRequiredService<PasswordHasher<User>>();
 
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Seed User",
+            Email = email.ToLower(),
+            PhoneNumber = "+380501234567",
+            Role = UserRole.Courier,
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        user.PasswordHash = hasher.HashPassword(user, password);
+        
         var courier = new Courier
         {
-            Id          = Guid.NewGuid(),
-            FirstName   = "Seed",
-            LastName    = "User",
-            Email       = email.ToLower(),
-            PhoneNumber = "+380501234567",
-            CreatedAt   = DateTime.UtcNow,
-            IsActive    = true
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            User = user,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
-        courier.PasswordHash = hasher.HashPassword(courier, password);
+        
+        context.Users.Add(user);
         context.Couriers.Add(courier);
         await context.SaveChangesAsync();
     }

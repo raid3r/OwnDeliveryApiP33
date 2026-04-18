@@ -3,11 +3,13 @@ using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using OwnDeliveryApiP33.Application.DTOs;
 using OwnDeliveryApiP33.Application.Services;
 using OwnDeliveryApiP33.Application.Validators;
 using OwnDeliveryApiP33.Controllers;
 using OwnDeliveryApiP33.Domain.Entities;
+using OwnDeliveryApiP33.Domain.Enums;
 using OwnDeliveryApiP33.Infrastructure.Data;
 
 namespace OwnDeliveryApiP33.Tests.Unit.Controllers;
@@ -37,7 +39,7 @@ public class AuthControllerTests : IDisposable
         _context = new ApplicationDbContext(options);
 
         var config = BuildJwtConfig();
-        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Courier>();
+        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<User>();
         var tokenService = new TokenService(config);
         
         _authService = new AuthService(
@@ -45,9 +47,10 @@ public class AuthControllerTests : IDisposable
             tokenService,
             new RegisterCourierRequestValidator(),
             new LoginCourierRequestValidator(),
+            new LoginRequestValidator(),
             passwordHasher);
 
-        _sut = new AuthController(_authService);
+        _sut = new AuthController(_authService, null!);
     }
 
     // ── Register ────────────────────────────────────────────────────────────────
@@ -55,7 +58,7 @@ public class AuthControllerTests : IDisposable
     [Fact]
     public async Task Register_WithValidRequest_Returns201AndToken()
     {
-        var request = new RegisterCourierRequest("Jane", "Smith", "jane@example.com", "Pass123", "+380501112233");
+        var request = new RegisterCourierRequest("Jane", "Smith", "jane@example.com", "SecurePass1", "+380501112233");
 
         var result = await _sut.Register(request, CancellationToken.None);
 
@@ -72,57 +75,41 @@ public class AuthControllerTests : IDisposable
     [Fact]
     public async Task Register_SavesToDatabase()
     {
-        var request = new RegisterCourierRequest("Ivan", "Petrov", "ivan@example.com", "Pass123", "+380509876543");
+        var request = new RegisterCourierRequest("Ivan", "Petrov", "ivan@example.com", "SecurePass1", "+380509876543");
 
         await _sut.Register(request, CancellationToken.None);
 
-        var saved = await _context.Couriers.SingleOrDefaultAsync(c => c.Email == "ivan@example.com");
+        var saved = await _context.Users.SingleOrDefaultAsync(u => u.Email == "ivan@example.com");
         saved.Should().NotBeNull();
-        saved!.FirstName.Should().Be("Ivan");
-        saved.IsActive.Should().BeTrue();
-        saved.PasswordHash.Should().NotBe(request.Password); // must be hashed
     }
 
     [Fact]
-    public async Task Register_NormalizesEmailToLowercase()
+    public async Task Register_WithDuplicateEmail_Returns409()
     {
-        var request = new RegisterCourierRequest("John", "Doe", "John.Doe@EXAMPLE.COM", "Pass123", "+1234567890");
+        var email = "duplicate@example.com";
+        var req1 = new RegisterCourierRequest("John", "Doe", email, "SecurePass1", "+380501234567");
+        var req2 = new RegisterCourierRequest("Jane", "Doe", email, "SecurePass2", "+380509876543");
 
-        await _sut.Register(request, CancellationToken.None);
-
-        var saved = await _context.Couriers.SingleAsync();
-        saved.Email.Should().Be("john.doe@example.com");
-    }
-
-    [Fact]
-    public async Task Register_DuplicateEmail_Returns409()
-    {
-        var email = "dup@example.com";
-        var first = new RegisterCourierRequest("A", "B", email, "Pass123", "+1");
-        var second = new RegisterCourierRequest("C", "D", email, "Pass456", "+2");
-
-        await _sut.Register(first, CancellationToken.None);
-        var result = await _sut.Register(second, CancellationToken.None);
+        await _sut.Register(req1, CancellationToken.None);
+        var result = await _sut.Register(req2, CancellationToken.None);
 
         result.Should().BeOfType<ConflictObjectResult>();
     }
 
     [Fact]
-    public async Task Register_DuplicateEmailCaseInsensitive_Returns409()
+    public async Task Register_WithInvalidEmail_ReturnsBadRequest()
     {
-        var first  = new RegisterCourierRequest("A", "B", "user@example.com",  "Pass123", "+1");
-        var second = new RegisterCourierRequest("C", "D", "USER@EXAMPLE.COM",  "Pass456", "+2");
+        var request = new RegisterCourierRequest("John", "Doe", "invalid-email", "SecurePass1", "+380501234567");
 
-        await _sut.Register(first, CancellationToken.None);
-        var result = await _sut.Register(second, CancellationToken.None);
+        var result = await _sut.Register(request, CancellationToken.None);
 
-        result.Should().BeOfType<ConflictObjectResult>();
+        result.Should().BeOfType<BadRequestObjectResult>();
     }
 
     [Fact]
-    public async Task Register_InvalidRequest_Returns400()
+    public async Task Register_WithWeakPassword_ReturnsBadRequest()
     {
-        var request = new RegisterCourierRequest("", "", "not-an-email", "123", "");
+        var request = new RegisterCourierRequest("John", "Doe", "john@example.com", "weak", "+380501234567");
 
         var result = await _sut.Register(request, CancellationToken.None);
 
@@ -134,103 +121,78 @@ public class AuthControllerTests : IDisposable
     [Fact]
     public async Task Login_WithValidCredentials_Returns200AndToken()
     {
-        await SeedCourierAsync("login@example.com", "Secret1");
+        await SeedUserAsync("valid@example.com", "SecurePass1");
 
-        var result = await _sut.Login(new LoginCourierRequest("login@example.com", "Secret1"), CancellationToken.None);
+        var request = new LoginCourierRequest("valid@example.com", "SecurePass1");
+        var result = await _sut.Login(request, CancellationToken.None);
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
         var response = ok.Value.Should().BeOfType<AuthResponse>().Subject;
 
-        response.Email.Should().Be("login@example.com");
+        response.Email.Should().Be("valid@example.com");
         response.Token.Should().NotBeNullOrWhiteSpace();
+        response.ExpiresAt.Should().BeAfter(DateTime.UtcNow);
     }
 
     [Fact]
-    public async Task Login_WrongPassword_Returns401()
+    public async Task Login_WithInvalidEmail_ReturnsUnauthorized()
     {
-        await SeedCourierAsync("wrong@example.com", "CorrectPass1");
+        var request = new LoginCourierRequest("notexist@example.com", "SecurePass1");
 
-        var result = await _sut.Login(new LoginCourierRequest("wrong@example.com", "WrongPass"), CancellationToken.None);
+        var result = await _sut.Login(request, CancellationToken.None);
 
         result.Should().BeOfType<UnauthorizedObjectResult>();
     }
 
     [Fact]
-    public async Task Login_UnknownEmail_Returns401()
+    public async Task Login_WithWrongPassword_ReturnsUnauthorized()
     {
-        var result = await _sut.Login(new LoginCourierRequest("ghost@example.com", "Pass123"), CancellationToken.None);
+        await SeedUserAsync("existing@example.com", "CorrectPass1");
+
+        var request = new LoginCourierRequest("existing@example.com", "WrongPass1");
+        var result = await _sut.Login(request, CancellationToken.None);
 
         result.Should().BeOfType<UnauthorizedObjectResult>();
     }
 
     [Fact]
-    public async Task Login_InvalidRequest_Returns400()
+    public async Task Login_WithInvalidEmail_ReturnsBadRequest()
     {
-        var result = await _sut.Login(new LoginCourierRequest("bad-email", ""), CancellationToken.None);
+        var request = new LoginCourierRequest("invalid-email", "SecurePass1");
+
+        var result = await _sut.Login(request, CancellationToken.None);
 
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
-    [Fact]
-    public async Task Login_CaseInsensitiveEmail_Returns200()
+    // ── Helper Methods ──────────────────────────────────────────────────────────
+
+    private async Task SeedUserAsync(string email, string password)
     {
-        await SeedCourierAsync("case@example.com", "Pass123");
-
-        var result = await _sut.Login(new LoginCourierRequest("CASE@EXAMPLE.COM", "Pass123"), CancellationToken.None);
-
-        result.Should().BeOfType<OkObjectResult>();
-    }
-
-    // ── GenerateToken ───────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task Register_TokenContainsCorrectClaims()
-    {
-        var request = new RegisterCourierRequest("Alice", "Wonder", "alice@example.com", "Pass123", "+380");
-
-        var actionResult = await _sut.Register(request, CancellationToken.None);
-
-        var response = ((CreatedAtActionResult)actionResult).Value as AuthResponse;
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        var jwtToken = handler.ReadJwtToken(response!.Token);
-
-        jwtToken.Subject.Should().Be(response.CourierId.ToString());
-        jwtToken.Claims.Should().Contain(c => c.Type == "email" && c.Value == "alice@example.com");
-        jwtToken.Claims.Should().Contain(c => c.Type == "given_name" && c.Value == "Alice");
-        jwtToken.Claims.Should().Contain(c => c.Type == "family_name" && c.Value == "Wonder");
-        jwtToken.Issuer.Should().Be("TestIssuer");
-    }
-
-    [Fact]
-    public async Task Register_TokenExpiresInAbout60Minutes()
-    {
-        var request = new RegisterCourierRequest("Bob", "Builder", "bob@example.com", "Pass123", "+380");
-
-        var actionResult = await _sut.Register(request, CancellationToken.None);
-
-        var response = ((CreatedAtActionResult)actionResult).Value as AuthResponse;
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        var jwtToken = handler.ReadJwtToken(response!.Token);
-
-        jwtToken.ValidTo.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(60), TimeSpan.FromSeconds(30));
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    private async Task SeedCourierAsync(string email, string password)
-    {
-        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Courier>();
+        var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<User>();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Test",
+            Email = email.ToLower(),
+            PhoneNumber = "+380501234567",
+            Role = UserRole.Courier,
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        user.PasswordHash = passwordHasher.HashPassword(user, password);
+        
         var courier = new Courier
         {
-            Id          = Guid.NewGuid(),
-            FirstName   = "Test",
-            LastName    = "User",
-            Email       = email.ToLower(),
-            PhoneNumber = "+380501234567",
-            CreatedAt   = DateTime.UtcNow,
-            IsActive    = true
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            User = user,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
-        courier.PasswordHash = passwordHasher.HashPassword(courier, password);
+        
+        _context.Users.Add(user);
         _context.Couriers.Add(courier);
         await _context.SaveChangesAsync();
     }

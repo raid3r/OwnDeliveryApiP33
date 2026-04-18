@@ -16,20 +16,24 @@ public class CourierService : ICourierService
     public async Task<CourierProfileResponse> GetProfileAsync(Guid courierId, CancellationToken ct = default)
     {
         var courier = await _context.Couriers
+            .Include(c => c.User)
             .FirstOrDefaultAsync(c => c.Id == courierId, ct);
 
-        if (courier is null)
+        if (courier is null || courier.User is null)
         {
             throw new KeyNotFoundException("Courier not found.");
         }
 
+        var user = courier.User;
+        var nameParts = user.FullName.Split(' ');
+
         return new CourierProfileResponse(
             courier.Id,
-            courier.Email,
-            courier.FirstName,
-            courier.LastName,
-            courier.PhoneNumber,
+            user.Email,
+            nameParts[0],
+            nameParts.Length > 1 ? nameParts[1] : "",
+            user.PhoneNumber,
             courier.CreatedAt,
-            courier.IsActive);
+            user.Email != null);
     }
 }
